@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pong - Bot or 2 Player</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background-color: #1a1a1a;
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        h1 {
+            margin-bottom: 10px;
+            font-size: 2.5rem;
+            text-shadow: 2px 2px #00ffcc;
+        }
+        #menu, #game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .btn {
+            background-color: #00ffcc;
+            color: #1a1a1a;
+            border: none;
+            padding: 12px 24px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin: 10px;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: 0.2s;
+        }
+        .btn:hover {
+            background-color: #fff;
+            transform: scale(1.05);
+        }
+        #score-board {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            display: flex;
+            gap: 50px;
+        }
+        canvas {
+            background-color: #000;
+            border: 4px solid #00ffcc;
+            box-shadow: 0 0 20px rgba(0, 255, 204, 0.5);
+            display: none;
+        }
+        #instructions {
+            margin-top: 15px;
+            font-size: 0.9rem;
+            color: #aaa;
+            text-align: center;
+        }
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="menu">
+        <h1>PONG</h1>
+        <p style="margin-bottom: 20px;">Select Game Mode</p>
+        <button class="btn" onclick="startGame('bot')">Play vs Bot</button>
+        <button class="btn" onclick="startGame('2p')">2 Player Game</button>
+    </div>
+
+    <div id="game-container" class="hidden">
+        <div id="score-board">
+            <div>Player 1: <span id="score1">0</span></div>
+            <div>Player 2: <span id="score2">0</span></div>
+        </div>
+        <canvas id="pongCanvas" width="800" height="500"></canvas>
+        <div id="instructions">
+            Player 1: <strong>W / S</strong> keys | Player 2 (or Bot): <strong>Up / Down</strong> arrow keys
+        </div>
+        <button class="btn" style="margin-top: 15px; padding: 8px 16px; font-size: 0.9rem;" onclick="returnToMenu()">Main Menu</button>
+    </div>
+
+    <script>
+        const menu = document.getElementById('menu');
+        const gameContainer = document.getElementById('game-container');
+        const canvas = document.getElementById('pongCanvas');
+        const ctx = canvas.getContext('2d');
+        const score1El = document.getElementById('score1');
+        const score2El = document.getElementById('score2');
+
+        let gameMode = 'bot'; // 'bot' or '2p'
+        let score1 = 0;
+        let score2 = 0;
+        let animationId;
+
+        const paddleWidth = 12;
+        const paddleHeight = 90;
+        const ballSize = 10;
+
+        let leftPaddle = { x: 20, y: canvas.height / 2 - paddleHeight / 2, score: 0 };
+        let rightPaddle = { x: canvas.width - 32, y: canvas.height / 2 - paddleHeight / 2, score: 0 };
+
+        let ball = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            dx: 5,
+            dy: 5,
+            speed: 5
+        };
+
+        const keys = {
+            w: false,
+            s: false,
+            ArrowUp: false,
+            ArrowDown: false
+        };
+
+        window.addEventListener('keydown', (e) => {
+            if (keys.hasOwnProperty(e.key)) keys[e.key] = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (keys.hasOwnProperty(e.key)) keys[e.key] = false;
+        });
+
+        function startGame(mode) {
+            gameMode = mode;
+            score1 = 0;
+            score2 = 0;
+            score1El.textContent = score1;
+            score2El.textContent = score2;
+            menu.classList.add('hidden');
+            gameContainer.classList.remove('hidden');
+            canvas.style.display = 'block';
+            resetBall();
+            loop();
+        }
+
+        function returnToMenu() {
+            cancelAnimationFrame(animationId);
+            gameContainer.classList.add('hidden');
+            canvas.style.display = 'none';
+            menu.classList.remove('hidden');
+        }
+
+        function resetBall() {
+            ball.x = canvas.width / 2;
+            ball.y = canvas.height / 2;
+            ball.speed = 5;
+            ball.dx = (Math.random() > 0.5 ? 1 : -1) * ball.speed;
+            ball.dy = (Math.random() * 2 - 1) * ball.speed;
+        }
+
+        function update() {
+            // Player 1 controls (W/S)
+            if (keys.w && leftPaddle.y > 0) leftPaddle.y -= 7;
+            if (keys.s && leftPaddle.y < canvas.height - paddleHeight) leftPaddle.y += 7;
+
+            // Player 2 or Bot controls
+            if (gameMode === '2p') {
+                if (keys.ArrowUp && rightPaddle.y > 0) rightPaddle.y -= 7;
+                if (keys.ArrowDown && rightPaddle.y < canvas.height - paddleHeight) rightPaddle.y += 7;
+            } else {
+                // Simple Bot AI
+                const rightPaddleCenter = rightPaddle.y + paddleHeight / 2;
+                if (rightPaddleCenter < ball.y - 35) {
+                    rightPaddle.y += 5.5;
+                } else if (rightPaddleCenter > ball.y + 35) {
+                    rightPaddle.y -= 5.5;
+                }
+                // Keep bot inside canvas
+                if (rightPaddle.y < 0) rightPaddle.y = 0;
+                if (rightPaddle.y > canvas.height - paddleHeight) rightPaddle.y = canvas.height - paddleHeight;
+            }
+
+            // Ball movement
+            ball.x += ball.dx;
+            ball.y += ball.dy;
+
+            // Wall collision (Top / Bottom)
+            if (ball.y <= 0 || ball.y >= canvas.height - ballSize) {
+                ball.dy *= -1;
+            }
+
+            // Left paddle collision
+            if (
+                ball.x <= leftPaddle.x + paddleWidth &&
+                ball.y >= leftPaddle.y &&
+                ball.y <= leftPaddle.y + paddleHeight
+            ) {
+                ball.dx *= -1;
+                ball.speed += 0.3;
+            }
+
+            // Right paddle collision
+            if (
+                ball.x >= rightPaddle.x - ballSize &&
+                ball.y >= rightPaddle.y &&
+                ball.y <= rightPaddle.y + paddleHeight
+            ) {
+                ball.dx *= -1;
+                ball.speed += 0.3;
+            }
+
+            // Scoring
+            if (ball.x < 0) {
+                score2++;
+                score2El.textContent = score2;
+                resetBall();
+            } else if (ball.x > canvas.width) {
+                score1++;
+                score1El.textContent = score1;
+                resetBall();
+            }
+        }
+
+        function draw() {
+            // Clear canvas
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw center net line
+            ctx.strokeStyle = '#333';
+            ctx.setLineDash([5, 15]);
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 0);
+            ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Draw left paddle
+            ctx.fillStyle = '#00ffcc';
+            ctx.fillRect(leftPaddle.x, leftPaddle.y, paddleWidth, paddleHeight);
+
+            // Draw right paddle
+            ctx.fillRect(rightPaddle.x, rightPaddle.y, paddleWidth, paddleHeight);
+
+            // Draw ball
+            ctx.fillStyle = '#ff007f';
+            ctx.fillRect(ball.x, ball.y, ballSize, ballSize);
+        }
+
+        function loop() {
+            update();
+            draw();
+            animationId = requestAnimationFrame(loop);
+        }
+    </script>
+</body>
+</html>
