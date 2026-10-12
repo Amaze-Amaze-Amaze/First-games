@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sans Boss Fight: Hardcore Edition</title>
+    <title>Impossible Sans Fight Emulator</title>
     <style>
         body {
             background-color: #000;
@@ -16,56 +16,38 @@
             height: 100vh;
             margin: 0;
             overflow: hidden;
-            user-select: none;
         }
         #game-container {
-            position: relative;
             text-align: center;
         }
-        #sans-text {
-            font-size: 24px;
-            height: 30px;
-            margin-bottom: 20px;
-            text-transform: uppercase;
-        }
-        canvas {
+        #battle-box {
+            width: 400px;
+            height: 250px;
             border: 4px solid #fff;
+            position: relative;
+            margin: 20px auto;
             background-color: #000;
+            overflow: hidden;
+        }
+        #heart {
+            width: 16px;
+            height: 16px;
+            position: absolute;
+            background-color: #ff0000; /* Red Soul */
+            transition: background-color 0.2s;
+        }
+        .bone {
+            position: absolute;
+            background-color: #fff;
         }
         #ui {
-            margin-top: 15px;
             font-size: 20px;
-            display: flex;
-            justify-content: space-between;
-            width: 600px;
+            margin-top: 10px;
         }
-        .kr-text {
-            color: #d284ff;
-        }
-        #game-over {
-            display: none;
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 48px;
-            color: red;
-            font-weight: bold;
-            text-align: center;
-        }
-        #restart-btn {
-            margin-top: 20px;
-            padding: 10px 20px;
-            font-family: inherit;
-            font-size: 20px;
-            background: black;
-            color: white;
-            border: 2px solid white;
-            cursor: pointer;
-        }
-        #restart-btn:hover {
-            background: white;
-            color: black;
+        #sans-text {
+            height: 40px;
+            font-size: 18px;
+            margin-bottom: 10px;
         }
     </style>
 </head>
@@ -73,263 +55,193 @@
 
 <div id="game-container">
     <div id="sans-text">* do you wanna have a REALLY bad time?</div>
-    <canvas id="gameCanvas" width="600" height="400"></canvas>
-    <div id="ui">
-        <div>HP: <span id="hp-display">92</span> / 92</div>
-        <div>KR (KARMA): <span id="kr-display" class="kr-text">0</span></div>
-        <div>SURVIVED: <span id="timer-display">0s</span></div>
+    <div id="battle-box">
+        <div id="heart"></div>
     </div>
-    <div id="game-over">
-        GAME OVER
-        <br>
-        <button id="restart-btn" onclick="resetGame()">TRY AGAIN</button>
+    <div id="ui">
+        HP: <span id="hp">99</span> / 99 | MODE: <span id="mode">RED</span>
     </div>
 </div>
 
 <script>
-    const canvas = document.getElementById("gameCanvas");
-    const ctx = canvas.getContext("2d");
-    const hpDisplay = document.getElementById("hp-display");
-    const krDisplay = document.getElementById("kr-display");
-    const timerDisplay = document.getElementById("timer-display");
-    const sansText = document.getElementById("sans-text");
-    const gameOverScreen = document.getElementById("game-over");
+    const box = document.getElementById('battle-box');
+    const heart = document.getElementById('heart');
+    const hpDisplay = document.getElementById('hp');
+    const modeDisplay = document.getElementById('mode');
+    const sansText = document.getElementById('sans-text');
 
     // Game State
-    let player = { x: 300, y: 200, size: 8, speed: 4 };
-    let hp = 92;
-    let karma = 0;
-    let maxHp = 92;
+    let hp = 99;
+    let playerX = 192;
+    let playerY = 117;
+    let playerSpeed = 4;
+    let isBlueSoul = false;
+    let velocityY = 0;
+    const gravity = 0.6;
+    const jumpForce = -10;
+    
+    // Box dimensions boundaries
+    const boxWidth = 400;
+    const boxHeight = 250;
+    const heartSize = 16;
+
+    // Controls tracking
+    const keys = {};
+
+    // Obstacles
     let bones = [];
-    let blasters = [];
-    let keys = {};
-    let gameActive = true;
-    let startTime = Date.now();
-    let survivalTime = 0;
-    let phaseTick = 0;
 
-    // Dynamic Arena Boundaries (Shrinks over time to increase difficulty)
-    let arena = { x: 150, y: 100, width: 300, height: 200 };
-
-    // Event Listeners
-    window.addEventListener("keydown", e => keys[e.key] = true);
-    window.addEventListener("keyup", e => keys[e.key] = false);
-
-    function spawnBone(x, y, width, height, speedX, speedY) {
-        bones.push({ x, y, width, height, speedX, speedY });
+    // Initialize position
+    function updateHeartPosition() {
+        heart.style.left = playerX + 'px';
+        heart.style.top = playerY + 'px';
     }
+    updateHeartPosition();
 
-    function spawnGasterBlaster(targetX, targetY, direction) {
-        blasters.push({
-            x: direction === 'H' ? 0 : targetX,
-            y: direction === 'V' ? 0 : targetY,
-            targetX,
-            targetY,
-            direction,
-            timer: 0,
-            duration: 45, // frames before firing
-            fired: false
-        });
-    }
+    // Listeners
+    window.addEventListener('keydown', (e) => keys[e.key] = true);
+    window.addEventListener('keyup', (e) => keys[e.key] = false);
 
-    // AI Attack Patterns (Looping and ramping up)
-    function runAttackPatterns() {
-        phaseTick++;
-
-        // Randomly change Sans' dialogue dialogue box
-        if (phaseTick % 300 === 0) {
-            const lines = [
-                "* standard attacks won't cut it anymore.",
-                "* survival rate: 0%.",
-                "* getting tired yet?",
-                "* variable timelines won't save you here."
-            ];
-            sansText.innerText = lines[Math.floor(Math.random() * lines.length)];
+    // Spawn hard projectiles loop
+    function spawnBone() {
+        const isVertical = Math.random() > 0.5;
+        const bone = document.createElement('div');
+        bone.classList.add('bone');
+        
+        let boneData = {};
+        
+        if (isVertical) {
+            // Wall-like tall bone moving horizontally rapidly
+            bone.style.width = '15px';
+            bone.style.height = '100px';
+            bone.style.top = Math.random() > 0.5 ? '0px' : '150px';
+            boneData = {
+                element: bone,
+                x: boxWidth,
+                y: parseInt(bone.style.top),
+                w: 15,
+                h: 100,
+                speedX: -(5 + Math.random() * 6), // High speed
+                speedY: 0
+            };
+        } else {
+            // Fast ceiling/floor sweeping bone
+            bone.style.width = '80px';
+            bone.style.height = '15px';
+            bone.style.left = Math.random() > 0.5 ? '0px' : '320px';
+            boneData = {
+                element: bone,
+                x: parseInt(bone.style.left),
+                y: 0,
+                w: 80,
+                h: 15,
+                speedX: 0,
+                speedY: 4 + Math.random() * 4
+            };
         }
 
-        // Shrink the arena slightly over time to trap the player
-        if (phaseTick % 100 === 0 && arena.width > 120) {
-            arena.x += 1;
-            arena.y += 1;
-            arena.width -= 2;
-            arena.height -= 2;
-        }
+        box.appendChild(bone);
+        bones.push(boneData);
+    }
 
-        // Pattern 1: Rapid Bottom & Top Bones
-        if (phaseTick % 20 === 0) {
-            if (Math.random() > 0.5) {
-                // Bottom bone
-                spawnBone(arena.x + arena.width, arena.y + arena.height - 60, 12, 60, -5, 0);
+    // Phase shifting mechanics to increase difficulty dynamically
+    setInterval(() => {
+        spawnBone();
+        // Randomly force gravity shift (Sans Blue Soul power)
+        if (Math.random() > 0.7) {
+            isBlueSoul = !isBlueSoul;
+            if (isBlueSoul) {
+                heart.style.backgroundColor = '#00a2ff';
+                modeDisplay.innerText = "BLUE (GRAVITY)";
+                sansText.innerText = "* quick, jump!";
             } else {
-                // Top bone
-                spawnBone(arena.x + arena.width, arena.y, 12, 60, -5, 0);
+                heart.style.backgroundColor = '#ff0000';
+                modeDisplay.innerText = "RED (FREE MOVEMENT)";
+                sansText.innerText = "* localized gravity distortion over.";
             }
         }
+    }, 800);
 
-        // Pattern 2: High-Speed Gaster Blasters (Vertical or Horizontal beams)
-        if (phaseTick % 70 === 0) {
-            if (Math.random() > 0.5) {
-                spawnGasterBlaster(player.x, 0, 'V');
-            } else {
-                spawnGasterBlaster(0, player.y, 'H');
+    // Main Game Loop
+    function gameLoop() {
+        if (hp <= 0) {
+            sansText.innerText = "* told ya.";
+            alert("GAY OVER. Click OK to restart.");
+            hp = 99;
+            bones.forEach(b => b.element.remove());
+            bones = [];
+            playerX = 192;
+            playerY = 117;
+            isBlueSoul = false;
+            heart.style.backgroundColor = '#ff0000';
+        }
+
+        // Movement mechanics
+        if (isBlueSoul) {
+            // Blue Soul: Horizontal movement + Gravity jump
+            if (keys['ArrowLeft'] || keys['a']) playerX -= playerSpeed;
+            if (keys['ArrowRight'] || keys['d']) playerX += playerSpeed;
+            
+            // Jump processing
+            if ((keys['ArrowUp'] || keys['w']) && playerY >= boxHeight - heartSize - 2) {
+                velocityY = jumpForce;
             }
-        }
+            
+            velocityY += gravity;
+            playerY += velocityY;
 
-        // Pattern 3: Chaotic wave bones from the left
-        if (phaseTick % 120 === 0) {
-            for (let i = 0; i < 3; i++) {
-                spawnBone(arena.x, arena.y + (i * 60), 15, 30, 4, Math.sin(phaseTick) * 2);
+            // Ground collision
+            if (playerY >= boxHeight - heartSize) {
+                playerY = boxHeight - heartSize;
+                velocityY = 0;
             }
-        }
-    }
-
-    // Logic & Updates
-    function update() {
-        if (!gameActive) return;
-
-        survivalTime = Math.floor((Date.now() - startTime) / 1000);
-        timerDisplay.innerText = survivalTime + "s";
-
-        // Player movement & Arena collision
-        if (keys["ArrowUp"] && player.y - player.size > arena.y) player.y -= player.speed;
-        if (keys["ArrowDown"] && player.y + player.size < arena.y + arena.height) player.y += player.speed;
-        if (keys["ArrowLeft"] && player.x - player.size > arena.x) player.x -= player.speed;
-        if (keys["ArrowRight"] && player.x + player.size < arena.x + arena.width) player.x += player.speed;
-
-        // Process Karma Poisoning
-        if (karma > 0 && phaseTick % 10 === 0) {
-            hp--;
-            karma--;
+        } else {
+            // Red Soul: Omnidirectional Free movement
+            if (keys['ArrowLeft'] || keys['a']) playerX -= playerSpeed;
+            if (keys['ArrowRight'] || keys['d']) playerX += playerSpeed;
+            if (keys['ArrowUp'] || keys['w']) playerY -= playerSpeed;
+            if (keys['ArrowDown'] || keys['s']) playerY += playerSpeed;
         }
 
-        runAttackPatterns();
+        // Keep player inside boundary limits
+        if (playerX < 0) playerX = 0;
+        if (playerX > boxWidth - heartSize) playerX = boxWidth - heartSize;
+        if (playerY < 0) playerY = 0;
+        if (playerY > boxHeight - heartSize) playerY = boxHeight - heartSize;
 
-        // Update Bones
+        updateHeartPosition();
+
+        // Update and check obstacles
         for (let i = bones.length - 1; i >= 0; i--) {
             let b = bones[i];
             b.x += b.speedX;
             b.y += b.speedY;
+            b.element.style.left = b.x + 'px';
+            b.element.style.top = b.y + 'px';
 
-            // Collision Check (AABB vs Point-ish heart)
-            if (player.x + player.size > b.x && player.x - player.size < b.x + b.width &&
-                player.y + player.size > b.y && player.y - player.size < b.y + b.height) {
-                takeDamage();
+            // Collision check (AABB)
+            if (
+                playerX < b.x + b.w &&
+                playerX + heartSize > b.x &&
+                playerY < b.y + b.h &&
+                playerY + heartSize > b.y
+            ) {
+                hp -= 1; // "KR" style fast decay
+                hpDisplay.innerText = hp;
             }
 
             // Remove out of bounds bones
-            if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
+            if (b.x < -100 || b.x > boxWidth + 100 || b.y > boxHeight + 100) {
+                b.element.remove();
                 bones.splice(i, 1);
             }
         }
 
-        // Update Blasters
-        for (let i = blasters.length - 1; i >= 0; i--) {
-            let gb = blasters[i];
-            gb.timer++;
-
-            if (gb.timer >= gb.duration && !gb.fired) {
-                gb.fired = true;
-            }
-
-            // Beam Collision logic
-            if (gb.fired) {
-                if (gb.direction === 'V' && Math.abs(player.x - gb.targetX) < 25) {
-                    takeDamage();
-                } else if (gb.direction === 'H' && Math.abs(player.y - gb.targetY) < 25) {
-                    takeDamage();
-                }
-            }
-
-            // Remove old blasters
-            if (gb.timer > gb.duration + 15) {
-                blasters.splice(i, 1);
-            }
-        }
-
-        // Death condition
-        if (hp <= 0) {
-            hp = 0;
-            gameActive = false;
-            gameOverScreen.style.display = "block";
-        }
-
-        // UI Text updates
-        hpDisplay.innerText = hp;
-        krDisplay.innerText = karma;
+        requestAnimationFrame(gameLoop);
     }
 
-    function takeDamage() {
-        // Hardcore rules: Direct continuous frame damage + heavy Karma poison stacks
-        hp -= 1; 
-        if (karma < 40) karma += 2; 
-    }
-
-    // Render loop
-    function draw() {
-        // Clear screen
-        ctx.fillStyle = "#000";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // Draw dynamic arena box
-        ctx.strokeStyle = "#fff";
-        ctx.lineWidth = 4;
-        ctx.strokeRect(arena.x, arena.y, arena.width, arena.height);
-
-        // Draw Player (Heart)
-        ctx.fillStyle = "#ff0000";
-        ctx.beginPath();
-        ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Draw White Bones
-        ctx.fillStyle = "#ffffff";
-        bones.forEach(b => {
-            ctx.fillRect(b.x, b.y, b.width, b.height);
-        });
-
-        // Draw Gaster Blaster indicators and threat beams
-        blasters.forEach(gb => {
-            if (!gb.fired) {
-                // Warning lines before firing
-                ctx.strokeStyle = "rgba(0, 242, 254, 0.4)";
-                ctx.lineWidth = 2;
-                if (gb.direction === 'V') {
-                    ctx.beginPath(); ctx.moveTo(gb.targetX, 0); ctx.lineTo(gb.targetX, canvas.height); ctx.stroke();
-                } else {
-                    ctx.beginPath(); ctx.moveTo(0, gb.targetY); ctx.lineTo(canvas.width, gb.targetY); ctx.stroke();
-                }
-            } else {
-                // Deadly cyan/white blast beams
-                ctx.fillStyle = "#00f2fe";
-                if (gb.direction === 'V') {
-                    ctx.fillRect(gb.targetX - 20, 0, 40, canvas.height);
-                    ctx.fillStyle = "#fff";
-                    ctx.fillRect(gb.targetX - 10, 0, 20, canvas.height);
-                } else {
-ctx.fillRect(0, gb.targetY - 20, canvas.width, 40);
-ctx.fillStyle = "#fff";
-ctx.fillRect(0, gb.targetY - 10, canvas.width, 20);
-}
-}
-});
-}
-function gameLoop() {
-update();
-draw();
-requestAnimationFrame(gameLoop);
-}
-function resetGame() {
-player = { x: 300, y: 200, size: 8, speed: 4 };
-hp = 92;
-karma = 0;
-bones = [];
-blasters = [];
-arena = { x: 150, y: 100, width: 300, height: 200 };
-phaseTick = 0;
-startTime = Date.now();
-sansText.innerText = "* let's see how long you last this time.";
-gameOverScreen.style.display = "none";
-gameActive = true;
-}
-// Start Game
-gameLoop();
+    // Start loop
+    gameLoop();
+</script>
+</body>
+</html>
